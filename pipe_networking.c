@@ -11,7 +11,46 @@
   returns the file descriptor for the upstream pipe.
   =========================*/
 int server_handshake(int *to_client) {
-  return 0;
+
+  //server creates Universal FIFO & waits
+  if (mkfifo("Universal", 0777) == -1) {
+    printf("Error: %s\n", strerror(errno));
+    exit(1);
+  }
+  printf("Creating Universal FIFO...\n");
+  
+  int up = open("Universal", O_RDWR);
+  if (up == -1){
+    printf("Error: %s\n", strerror(errno));
+    exit(1);
+  }
+
+  //server recieves client's message & removes WKP
+  char * buffer = malloc(sizeof(char *) * BUFFER_SIZE);
+  if (read(up, buffer, BUFFER_SIZE) == -1) {
+    printf("Error: %s\n", strerror(errno));
+    exit(1);
+  }
+  printf("Reieved private FIFO: %s, removing Universal FIFO...\n", buffer);
+  close(up);
+  
+  //server connects to client FIFO, sending acknowledgement message
+  *to_client = open(buffer, O_RDWR);
+  if (*to_client == -1) {
+    printf("Error: %s\n", strerror(errno));
+    exit(1);
+  }
+  printf("Connecting to the private FIFO...\n");
+  
+  if (write(*to_client, ACK, BUFFER_SIZE) == -1) {
+    printf("Error: %s\n", strerror(errno));
+    exit(1);
+  }
+  printf("Sending acknowledgement...\n");
+  
+  close(*to_client);
+  free(buffer);
+  return up;
 }
 
 
@@ -25,5 +64,45 @@ int server_handshake(int *to_client) {
   returns the file descriptor for the downstream pipe.
   =========================*/
 int client_handshake(int *to_server) {
-  return 0;
+
+  //client creates private FIFO
+  if (mkfifo("Unique", 0777) == -1) {
+    printf("Error: %s\n", strerror(errno));
+    exit(1);
+  }
+  printf("Creating private FIFO...\n");
+  
+  int down = open("Unique", O_RDWR);
+  if (down == -1){
+    printf("Error: %s\n", strerror(errno));
+    exit(1);
+  }
+
+  //client connects to server & sends the private FIFO & waits
+  *to_server = open("Universal", O_RDWR);
+  if (write(*to_server, "Unique", BUFFER_SIZE) == -1) {
+    printf("Error: %s\n", strerror(errno));
+    exit(1);
+  }
+  printf("Connecting to SERVER and sending private FIFO...\n");
+
+  //client receives message, removes private FIFO
+  char * ackmessage = malloc(sizeof(char*) * BUFFER_SIZE);
+  if (read(down, ackmessage, BUFFER_SIZE) == -1) {
+    printf("Error: %s\n", strerror(errno));
+    exit(1);
+  }
+  printf("Acknowledgement '%s' recieved...\n", ackmessage);
+  
+  close(down);
+
+  //client sends responce to server
+  if (write(*to_server, "Responce", BUFFER_SIZE) == -1) {
+    printf("Error: %s\n", strerror(errno));
+    exit(1);
+  }
+  printf("Sending responce to SERVER");
+  
+  free(ackmessage);
+  return down;
 }
