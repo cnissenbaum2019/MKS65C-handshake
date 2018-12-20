@@ -1,5 +1,26 @@
 #include "pipe_networking.h"
 
+static void sighandler(int signo) {
+  printf("Resetting Server\n");
+  char * args[3] = {"rm", "Universal", NULL};
+  if(!fork()) {
+    if(!fork()) {
+      args[1] = "Unique";
+      execvp(args[0], args);
+    }
+    execvp(args[0], args);
+  } else {
+    printf("Terminated the Communications\n");
+  }
+  exit(0);
+}
+
+void process(char * input) {
+  while(*input) {
+    (*input)++;
+    input++;
+  }
+}
 
 /*=========================
   server_handshake
@@ -17,8 +38,8 @@ int server_handshake(int *to_client) {
     printf("Error: %s\n", strerror(errno));
     exit(1);
   }
-  printf("Creating Universal FIFO...\n");
-  
+  printf("[SERVER] Creating Universal FIFO...\n");
+
   int up = open("Universal", O_RDWR);
   if (up == -1){
     printf("Error: %s\n", strerror(errno));
@@ -31,23 +52,43 @@ int server_handshake(int *to_client) {
     printf("Error: %s\n", strerror(errno));
     exit(1);
   }
-  printf("Reieved private FIFO: %s, removing Universal FIFO...\n", buffer);
-  close(up);
-  
+  printf("[SERVER] Reieved private FIFO: %s, removing Universal FIFO...\n", buffer);
+
   //server connects to client FIFO, sending acknowledgement message
   *to_client = open(buffer, O_RDWR);
   if (*to_client == -1) {
     printf("Error: %s\n", strerror(errno));
     exit(1);
   }
-  printf("Connecting to the private FIFO...\n");
-  
+  printf("[SERVER] Connecting to the private FIFO...\n");
+
   if (write(*to_client, ACK, BUFFER_SIZE) == -1) {
     printf("Error: %s\n", strerror(errno));
     exit(1);
   }
-  printf("Sending acknowledgement...\n");
+  printf("[SERVER] Sending acknowledgement...\n");
+
+  //repeat until client exits
+  //get data from the client
+  while(1) {
+        
+    printf("[SERVER] Awaiting message from Client\n");
+    if (read(up, buffer, BUFFER_SIZE) == -1) {
+      printf("Error: %s\n", strerror(errno));
+      exit(1);
+    }
+    printf("[SERVER] Recieved '%s'\n", buffer);
+    
+    //"Process" the data
+    process(buffer);
+    
+    printf("[SERVER] Sending '%s' back\n", buffer);
+    //Send new data back
+    write(*to_client, buffer, BUFFER_SIZE);
+  }
   
+  
+  close(up);
   close(*to_client);
   free(buffer);
   return up;
@@ -70,8 +111,8 @@ int client_handshake(int *to_server) {
     printf("Error: %s\n", strerror(errno));
     exit(1);
   }
-  printf("Creating private FIFO...\n");
-  
+  printf("[CLIENT] Creating private FIFO...\n");
+
   int down = open("Unique", O_RDWR);
   if (down == -1){
     printf("Error: %s\n", strerror(errno));
@@ -84,25 +125,46 @@ int client_handshake(int *to_server) {
     printf("Error: %s\n", strerror(errno));
     exit(1);
   }
-  printf("Connecting to SERVER and sending private FIFO...\n");
+  printf("[CLIENT] Connecting to SERVER and sending private FIFO...\n");
 
   //client receives message, removes private FIFO
-  char * ackmessage = malloc(sizeof(char*) * BUFFER_SIZE);
-  if (read(down, ackmessage, BUFFER_SIZE) == -1) {
+  char * buffer = malloc(sizeof(char*) * BUFFER_SIZE);
+  if (read(down, buffer, BUFFER_SIZE) == -1) {
     printf("Error: %s\n", strerror(errno));
     exit(1);
   }
-  printf("Acknowledgement '%s' recieved...\n", ackmessage);
+  printf("[CLIENT] Acknowledgement '%s' recieved...\n", buffer);
   
-  close(down);
+  //repeat until ^C
+  while (1) {
+    //check for exit
+    signal(SIGINT, sighandler);
 
-  //client sends responce to server
-  if (write(*to_server, "Responce", BUFFER_SIZE) == -1) {
-    printf("Error: %s\n", strerror(errno));
-    exit(1);
+    //prompt user for input
+    printf("[CLIENT] What would you like to send?\n");
+    
+    //re-use buffer
+    fgets(buffer, BUFFER_SIZE, stdin);
+
+    printf("[CLIENT] Sending '%s' to server\n", buffer);
+    //send input to server
+    if (write(*to_server, buffer, BUFFER_SIZE) == -1) {
+      printf("Error: %s\n", strerror(errno));
+      exit(1);
+    }
+
+    //get responce from server
+    if (read(down, buffer, BUFFER_SIZE) == -1) {
+      printf("Error: %s\n", strerror(errno));
+      exit(1);
+    }
+
+    //display it to user
+    printf("[CLIENT] This is what the server sent back: %s\n", buffer);
+    
   }
-  printf("Sending responce to SERVER");
-  
-  free(ackmessage);
+
+  free(buffer);
+  close(down);
   return down;
 }
